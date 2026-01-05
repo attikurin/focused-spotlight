@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>集中スポットライト - 授業用ツール</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* スクロール防止 */
+            background-color: #333;
+            touch-action: none; /* モバイルでのスクロール防止 */
+        }
+        
+        #app-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 背景画像表示エリア */
+        #background-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            z-index: 1;
+        }
+
+        /* カーテン（Canvas） */
+        #spotlight-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 2;
+            cursor: none; /* カーソルを消してスポットライトに集中させる */
+        }
+
+        /* コントロールパネル */
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 300px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            z-index: 10;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        /* パネル最小化時のスタイル */
+        #controls.minimized {
+            transform: translateY(calc(100% + 20px)); /* 画面外へ */
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 表示/非表示トグルボタン */
+        #toggle-controls-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 11;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #3b82f6;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 1.2rem;
+        }
+        #toggle-controls-btn:hover {
+            background: #2563eb;
+        }
+
+        /* カスタムレンジスライダー */
+        input[type=range] {
+            width: 100%;
+            margin: 5px 0;
+            cursor: pointer;
+        }
+
+        .control-group {
+            margin-bottom: 12px;
+        }
+        .control-label {
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #4b5563;
+            display: flex;
+            justify-content: space-between;
+        }
+        .btn-group {
+            display: flex;
+            gap: 5px;
+        }
+        .shape-btn {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            background: #f3f4f6;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .shape-btn.active {
+            background: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+
+        /* ファイルアップロードの見た目 */
+        .file-upload-label {
+            display: block;
+            padding: 10px;
+            background: #e5e7eb;
+            border: 2px dashed #9ca3af;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            color: #4b5563;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+        .file-upload-label:hover {
+            background: #d1d5db;
+        }
+
+        /* ヒント表示 */
+        #hint-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255,255,255,0.7);
+            font-size: 1.5rem;
+            pointer-events: none;
+            z-index: 5;
+            text-align: center;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <!-- 背景画像レイヤー -->
+    <div id="background-layer"></div>
+
+    <!-- カーテンレイヤー (Canvas) -->
+    <canvas id="spotlight-canvas"></canvas>
+
+    <!-- 初期ヒント -->
+    <div id="hint-overlay">
+        <i class="fa-solid fa-computer-mouse fa-bounce"></i><br>
+        マウスを動かしてスポットライト移動
+    </div>
+
+    <!-- コントロールパネルのトグルボタン -->
+    <div id="toggle-controls-btn" title="設定を開く/閉じる">
+        <i class="fa-solid fa-sliders"></i>
+    </div>
+
+    <!-- コントロールパネル -->
+    <div id="controls">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h2 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-lightbulb text-yellow-500 mr-2"></i>集中スポットライト</h2>
+            <button id="reset-btn" class="text-xs text-red-500 hover:underline">リセット</button>
+        </div>
+
+        <!-- 画像アップロード -->
+        <div class="control-group">
+            <div class="control-label mb-1">背景画像 (教材など)</div>
+            <label class="file-upload-label">
+                <i class="fa-solid fa-image mr-1"></i> 画像を選択...
+                <input type="file" id="image-upload" accept="image/*" class="hidden">
+            </label>
+        </div>
+
+        <!-- スポットライト形状 -->
+        <div class="control-group">
+            <div class="control-label mb-1">形状</div>
+            <div class="btn-group">
+                <button class="shape-btn active" data-shape="circle" title="円形"><i class="fa-regular fa-circle"></i></button>
+                <button class="shape-btn" data-shape="square" title="四角形"><i class="fa-regular fa-square"></i></button>
+                <button class="shape-btn" data-shape="slit" title="行読みスリット"><i class="fa-solid fa-arrows-left-right"></i></button>
+            </div>
+        </div>
+
+        <!-- サイズ調整 -->
+        <div class="control-group">
+            <div class="control-label">
+                サイズ
+                <span id="size-val">150px</span>
+            </div>
+            <input type="range" id="size-slider" min="20" max="600" value="150">
+        </div>
+
+        <!-- 透過率 -->
+        <div class="control-group">
+            <div class="control-label">
+                カーテンの濃さ (不透明度)
+                <span id="opacity-val">100%</span>
+            </div>
+            <input type="range" id="opacity-slider" min="0" max="100" value="100">
+        </div>
+
+        <!-- カーテンの色 -->
+        <div class="control-group">
+            <div class="control-label mb-1">カーテンの色</div>
+            <div class="btn-group">
+                <button class="shape-btn active" id="color-black-btn" style="background-color: #333; color: white;">黒板</button>
+                <button class="shape-btn" id="color-white-btn" style="background-color: #fff; color: #333; border: 1px solid #ccc;">白板</button>
+            </div>
+        </div>
+
+        <!-- 使い方のヒント -->
+        <div class="mt-4 p-3 bg-blue-50 text-blue-800 text-xs rounded border border-blue-200">
+            <p class="font-bold mb-1"><i class="fa-solid fa-circle-info"></i> 使い方メモ:</p>
+            <ul class="list-disc pl-4 space-y-1">
+                <li>右下のボタンでこのパネルを隠せます。</li>
+                <li>スリットモードは文章の行読みに便利です。</li>
+                <li>画像を読み込むと、背景に表示されます。</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 要素の取得
+    const canvas = document.getElementById('spotlight-canvas');
+    const ctx = canvas.getContext('2d');
+    const bgLayer = document.getElementById('background-layer');
+    const controlsPanel = document.getElementById('controls');
+    const toggleBtn = document.getElementById('toggle-controls-btn');
+    const hintOverlay = document.getElementById('hint-overlay');
+    
+    // 設定UI要素
+    const imageUpload = document.getElementById('image-upload');
+    const sizeSlider = document.getElementById('size-slider');
+    const opacitySlider = document.getElementById('opacity-slider');
+    const sizeVal = document.getElementById('size-val');
+    const opacityVal = document.getElementById('opacity-val');
+    const shapeBtns = document.querySelectorAll('.shape-btn[data-shape]');
+    const colorBlackBtn = document.getElementById('color-black-btn');
+    const colorWhiteBtn = document.getElementById('color-white-btn');
+    const resetBtn = document.getElementById('reset-btn');
+
+    // 状態管理
+    let state = {
+        mouseX: window.innerWidth / 2,
+        mouseY: window.innerHeight / 2,
+        size: 150,
+        opacity: 1.0, // 0.0 - 1.0
+        shape: 'circle', // 'circle', 'square', 'slit'
+        curtainColor: 'black', // 'black', 'white'
+        isControlsVisible: true,
+        hasInteracted: false
+    };
+
+    // 初期化
+    function init() {
+        resizeCanvas();
+        draw();
+        
+        // イベントリスナー設定
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            draw();
+        });
+
+        // マウス移動
+        window.addEventListener('mousemove', (e) => {
+            updatePosition(e.clientX, e.clientY);
+        });
+
+        // タッチ操作対応
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault(); // スクロール防止
+            if(e.touches.length > 0) {
+                updatePosition(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: false });
+        
+        // 初回タッチ/クリックでヒントを消す
+        window.addEventListener('touchstart', hideHint);
+        window.addEventListener('mousedown', hideHint);
+
+        // UIイベント
+        setupUIEvents();
+    }
+
+    function hideHint() {
+        if (!state.hasInteracted) {
+            state.hasInteracted = true;
+            hintOverlay.style.opacity = '0';
+            setTimeout(() => hintOverlay.style.display = 'none', 500);
+        }
+    }
+
+    function updatePosition(x, y) {
+        state.mouseX = x;
+        state.mouseY = y;
+        requestAnimationFrame(draw);
+    }
+
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    // 描画ロジック（核心部分）
+    function draw() {
+        // キャンバスをクリア
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // カーテンの色設定
+        let r, g, b;
+        if (state.curtainColor === 'black') {
+            r = 0; g = 0; b = 0;
+        } else {
+            r = 255; g = 255; b = 255;
+        }
+
+        // 1. 全体を塗りつぶす (カーテン)
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${state.opacity})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // 透過率が0の場合は切り抜き処理をしない（完全に見えている状態）
+        if (state.opacity <= 0.05) return;
+
+        // 2. スポットライト部分を「切り抜く」 (透明にする)
+        // 'destination-out' は、既存の描画内容から、新しく描く図形の部分を削除（透明化）します。
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0, 0, 0, 1)'; // 色は何でも良い、アルファが重要
+        
+        ctx.beginPath();
+
+        if (state.shape === 'circle') {
+            ctx.arc(state.mouseX, state.mouseY, state.size, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (state.shape === 'square') {
+            // 中心をマウス位置にするためにオフセット
+            ctx.rect(state.mouseX - state.size, state.mouseY - state.size, state.size * 2, state.size * 2);
+            ctx.fill();
+        } else if (state.shape === 'slit') {
+            // 横長スリットモード：横幅いっぱい、高さはsizeで指定
+            // 縦位置(Y)だけマウスに追従
+            const height = state.size; // スリットの高さ
+            ctx.rect(0, state.mouseY - height / 2, canvas.width, height);
+            ctx.fill();
+        }
+
+        // ブレンドモードを戻す
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // 3. スポットライトの枠線を描画（オプション：視認性向上のため）
+        ctx.strokeStyle = state.curtainColor === 'black' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (state.shape === 'circle') {
+            ctx.arc(state.mouseX, state.mouseY, state.size, 0, Math.PI * 2);
+        } else if (state.shape === 'square') {
+            ctx.rect(state.mouseX - state.size, state.mouseY - state.size, state.size * 2, state.size * 2);
+        } else if (state.shape === 'slit') {
+             const height = state.size;
+             ctx.moveTo(0, state.mouseY - height / 2);
+             ctx.lineTo(canvas.width, state.mouseY - height / 2);
+             ctx.moveTo(0, state.mouseY + height / 2);
+             ctx.lineTo(canvas.width, state.mouseY + height / 2);
+        }
+        ctx.stroke();
+    }
+
+    function setupUIEvents() {
+        // コントロール表示トグル
+        toggleBtn.addEventListener('click', () => {
+            state.isControlsVisible = !state.isControlsVisible;
+            if (state.isControlsVisible) {
+                controlsPanel.classList.remove('minimized');
+                toggleBtn.querySelector('i').className = 'fa-solid fa-sliders';
+            } else {
+                controlsPanel.classList.add('minimized');
+                toggleBtn.querySelector('i').className = 'fa-solid fa-eye-slash';
+            }
+        });
+
+        // 画像アップロード
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    bgLayer.style.backgroundImage = `url(${event.target.result})`;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // サイズ変更
+        sizeSlider.addEventListener('input', (e) => {
+            state.size = parseInt(e.target.value);
+            sizeVal.textContent = state.size + 'px';
+            draw();
+        });
+
+        // 透過率変更
+        opacitySlider.addEventListener('input', (e) => {
+            state.opacity = parseInt(e.target.value) / 100;
+            opacityVal.textContent = e.target.value + '%';
+            draw();
+        });
+
+        // 形状変更
+        shapeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // UI更新
+                shapeBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // 状態更新
+                state.shape = btn.dataset.shape;
+                draw();
+            });
+        });
+
+        // 色変更
+        colorBlackBtn.addEventListener('click', () => {
+            state.curtainColor = 'black';
+            colorBlackBtn.classList.add('active');
+            colorWhiteBtn.classList.remove('active');
+            document.body.style.backgroundColor = '#333';
+            draw();
+        });
+
+        colorWhiteBtn.addEventListener('click', () => {
+            state.curtainColor = 'white';
+            colorWhiteBtn.classList.add('active');
+            colorBlackBtn.classList.remove('active');
+            document.body.style.backgroundColor = '#f3f4f6';
+            draw();
+        });
+
+        // リセット
+        resetBtn.addEventListener('click', () => {
+            bgLayer.style.backgroundImage = 'none';
+            imageUpload.value = '';
+            
+            state.size = 150;
+            sizeSlider.value = 150;
+            sizeVal.textContent = '150px';
+
+            state.opacity = 1.0;
+            opacitySlider.value = 100;
+            opacityVal.textContent = '100%';
+
+            state.shape = 'circle';
+            shapeBtns.forEach(b => b.classList.remove('active'));
+            document.querySelector('[data-shape="circle"]').classList.add('active');
+
+            state.curtainColor = 'black';
+            colorBlackBtn.classList.add('active');
+            colorWhiteBtn.classList.remove('active');
+            document.body.style.backgroundColor = '#333';
+
+            draw();
+        });
+    }
+
+    // アプリ起動
+    init();
+
+</script>
+</body>
+</html>
